@@ -160,6 +160,8 @@ type Container struct {
 
 	// invokerFn calls a function with arguments provided to Provide or Invoke.
 	invokerFn invokerFn
+
+	graph *injectGraph
 }
 
 // containerWriter provides write access to the Container's underlying data
@@ -236,6 +238,7 @@ func New(opts ...Option) *Container {
 		groups:    make(map[key][]reflect.Value),
 		rand:      rand.New(rand.NewSource(time.Now().UnixNano())),
 		invokerFn: defaultInvoker,
+		graph:     newInjectGraph(),
 	}
 
 	for _, opt := range opts {
@@ -437,6 +440,14 @@ func (c *Container) Invoke(function interface{}, opts ...InvokeOption) error {
 			Reason: err,
 		}
 	}
+
+	if err := c.populateArgs(args); err != nil {
+		return errArgumentsFailed{
+			Func:   digreflect.InspectFunc(function),
+			Reason: err,
+		}
+	}
+
 	returned := c.invokerFn(reflect.ValueOf(function), args)
 	if len(returned) == 0 {
 		return nil
