@@ -162,6 +162,8 @@ type Container struct {
 	invokerFn invokerFn
 
 	graph *injectGraph
+
+	*containerExt
 }
 
 // containerWriter provides write access to the Container's underlying data
@@ -204,6 +206,8 @@ type containerStore interface {
 
 	// Returns invokerFn function to use when calling arguments.
 	invoker() invokerFn
+
+	intercept(p param) error
 }
 
 // provider encapsulates a user-provided constructor.
@@ -233,12 +237,13 @@ type provider interface {
 // New constructs a Container.
 func New(opts ...Option) *Container {
 	c := &Container{
-		providers: make(map[key][]*node),
-		values:    make(map[key]reflect.Value),
-		groups:    make(map[key][]reflect.Value),
-		rand:      rand.New(rand.NewSource(time.Now().UnixNano())),
-		invokerFn: defaultInvoker,
-		graph:     newInjectGraph(),
+		providers:    make(map[key][]*node),
+		values:       make(map[key]reflect.Value),
+		groups:       make(map[key][]reflect.Value),
+		rand:         rand.New(rand.NewSource(time.Now().UnixNano())),
+		invokerFn:    defaultInvoker,
+		graph:        newInjectGraph(),
+		containerExt: newContainerExt(),
 	}
 
 	for _, opt := range opts {
@@ -420,6 +425,14 @@ func (c *Container) Invoke(function interface{}, opts ...InvokeOption) error {
 		return err
 	}
 
+	// 拦截检查
+	if err := c.intercept(pl); err != nil {
+		return errMissingDependencies{
+			Func:   digreflect.InspectFunc(function),
+			Reason: err,
+		}
+	}
+
 	if err := shallowCheckDependencies(c, pl); err != nil {
 		return errMissingDependencies{
 			Func:   digreflect.InspectFunc(function),
@@ -484,7 +497,10 @@ func (c *Container) provide(ctor interface{}, opts provideOptions) error {
 	if err != nil {
 		return err
 	}
+	return c.provideNode(ctor, n)
+}
 
+func (c *Container) provideNode(ctor interface{}, n *node) error {
 	keys, err := c.findAndValidateResults(n)
 	if err != nil {
 		return err

@@ -233,6 +233,10 @@ func (ps paramSingle) Build(c containerStore) (reflect.Value, error) {
 		return v, nil
 	}
 
+	if err := c.intercept(ps); err != nil {
+		return _noValue, err
+	}
+
 	providers := c.getValueProviders(ps.Name, ps.Type)
 	if len(providers) == 0 {
 		if ps.Optional {
@@ -459,6 +463,10 @@ func newParamGroupedSlice(f reflect.StructField) (paramGroupedSlice, error) {
 }
 
 func (pt paramGroupedSlice) Build(c containerStore) (reflect.Value, error) {
+	if err := c.intercept(pt); err != nil {
+		return _noValue, err
+	}
+
 	for _, n := range c.getGroupProviders(pt.Group, pt.Type.Elem()) {
 		if err := n.Call(c); err != nil {
 			return _noValue, errParamGroupFailed{

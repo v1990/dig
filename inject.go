@@ -39,6 +39,8 @@ func (c *Container) populateValue(v reflect.Value, name string) error {
 		return nil
 	case v.Kind() == reflect.Ptr && v.IsNil():
 		return nil
+	case v.Kind() == reflect.Interface && v.IsNil():
+		return nil
 	}
 
 	k := key{t: v.Type(), name: name}
