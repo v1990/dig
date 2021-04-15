@@ -792,6 +792,10 @@ func shallowCheckDependencies(c containerStore, p param) error {
 			return true
 		}
 
+		if _, ok := c.getValue(ps.Name, ps.Type); ok {
+			return true
+		}
+
 		if ns := c.getValueProviders(ps.Name, ps.Type); len(ns) == 0 && !ps.Optional {
 			err = append(err, newErrMissingTypes(c, key{name: ps.Name, t: ps.Type})...)
 			addMissingNodes = append(addMissingNodes, ps.DotParam()...)
