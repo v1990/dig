@@ -5,6 +5,10 @@ import (
 	"reflect"
 )
 
+const (
+	_injectTag = "inject"
+)
+
 type injectGraph struct {
 	inject.Graph
 	provided map[key]bool
@@ -56,11 +60,8 @@ func (c *Container) populateValue(v reflect.Value, name string) error {
 	}
 
 	// 填充 struct fields
-	tt := reflect.TypeOf(v.Interface())
-	if tt.Kind() == reflect.Ptr {
-		tt = tt.Elem()
-	}
-	if tt.Kind() != reflect.Struct {
+	tt, isStruct := isStructType(reflect.TypeOf(v.Interface()))
+	if !isStruct {
 		return nil
 	}
 

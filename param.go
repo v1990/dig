@@ -120,7 +120,17 @@ func walkParam(p param, v paramVisitor) {
 	}
 
 	switch par := p.(type) {
-	case paramSingle, paramGroupedSlice:
+	case paramSingle:
+		if t, ok := isStructType(par.Type); ok {
+			n := t.NumField()
+			for i := 0; i < n; i++ {
+				field := t.Field(i)
+				if name, ok := field.Tag.Lookup(_injectTag); ok {
+					walkParam(paramSingle{Type: field.Type, Name: name}, v)
+				}
+			}
+		}
+	case paramGroupedSlice:
 		// No sub-results
 	case paramObject:
 		for _, f := range par.Fields {
@@ -233,9 +243,9 @@ func (ps paramSingle) Build(c containerStore) (reflect.Value, error) {
 		return v, nil
 	}
 
-	if err := c.intercept(ps); err != nil {
-		return _noValue, err
-	}
+	//if err := c.intercept(ps); err != nil {
+	//	return _noValue, err
+	//}
 
 	providers := c.getValueProviders(ps.Name, ps.Type)
 	if len(providers) == 0 {
@@ -463,9 +473,9 @@ func newParamGroupedSlice(f reflect.StructField) (paramGroupedSlice, error) {
 }
 
 func (pt paramGroupedSlice) Build(c containerStore) (reflect.Value, error) {
-	if err := c.intercept(pt); err != nil {
-		return _noValue, err
-	}
+	//if err := c.intercept(pt); err != nil {
+	//	return _noValue, err
+	//}
 
 	for _, n := range c.getGroupProviders(pt.Group, pt.Type.Elem()) {
 		if err := n.Call(c); err != nil {

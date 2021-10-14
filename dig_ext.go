@@ -8,15 +8,13 @@ import (
 )
 
 type containerExt struct {
-	intercepted map[param]bool
-	intercepts  map[key]func(p param) error
-	uuid        int
+	intercepts map[key]func(p param) error
+	uuid       int
 }
 
 func newContainerExt() *containerExt {
 	return &containerExt{
-		intercepted: make(map[param]bool),
-		intercepts:  make(map[key]func(p param) error),
+		intercepts: make(map[key]func(p param) error),
 	}
 }
 
@@ -33,7 +31,7 @@ func PassiveName(NameParamIndex int) PassiveProvideOption {
 	}
 }
 
-// PassiveProvide: 被动提供，当找不到依赖时才使用这个提供器
+// PassiveProvide 被动提供，当找不到依赖时才使用这个提供器
 //  constructor 的格式为：func(name string,其他参数...)(result,error(可选))
 //  - 参数 name 为依赖的对象的名字，即tag:`name:"$name"`或`inject:"$name"`中的值
 //    可以使用 option PassiveName(NameParamIndex) 来说明它的位置,默认为0
@@ -101,11 +99,11 @@ func (c *Container) PassiveProvide(constructor interface{}, opt ...PassiveProvid
 		c.uuid++
 		// 将 name 也提供给容器
 		if err := c.Provide(func() string { return ps.Name }, Name(nameParam.Name)); err != nil {
-			panic(err)
 			return err
 		}
 
 		// 处理完成，提供给容器
+		// 相当于: Provide(constructor,dig.Name(param.name))
 		return c.provideNode(constructor, node)
 	}
 
@@ -113,58 +111,80 @@ func (c *Container) PassiveProvide(constructor interface{}, opt ...PassiveProvid
 }
 
 // 执行拦截检查
-func (t *Container) intercept(p param) error {
-	if t.isIntercepted(p) {
-		return nil
-	}
+func (c *Container) intercept(p param) error {
+	var err error
+	walkParam(p, paramVisitorFunc(func(p param) bool {
+		if err != nil {
+			return false
+		}
 
-	switch p := p.(type) {
-	case paramList, paramObject:
-		walkParam(p, paramVisitorFunc(func(p param) (recurse bool) {
-			if t.isIntercepted(p) {
-				return false
-			}
-			switch p := p.(type) {
-			case paramSingle, paramGroupedSlice:
-				t.intercept(p)
+		ps, ok := p.(paramSingle)
+		if !ok {
+			return true
+		}
+
+		if ns := c.getValueProviders(ps.Name, ps.Type); len(ns) > 0 {
+			return true
+		}
+
+		if f, ok := c.intercepts[key{t: ps.Type}]; ok {
+			if e := f(ps); e != nil {
+				err = e
 				return false
 			}
 			return true
-		}))
-		return nil
-	case paramSingle:
-		t.intercepted[p] = true
-		// already build
-		if _, ok := t.getValue(p.Name, p.Type); ok {
-			return nil
 		}
-		// already provided
-		if providers := t.getValueProviders(p.Name, p.Type); len(providers) > 0 {
-			return nil
-		}
-		// do intercept by type
-		if f, ok := t.intercepts[key{t: p.Type}]; ok {
-			if err := f(p); err != nil {
-				return err
-			}
-		}
-		return nil
-	case paramGroupedSlice:
-		t.intercepted[p] = true
-		return nil
-	default:
-		return nil
-	}
-	return nil
+		return true
+	}))
+
+	return err
+
 }
 
-func (t *Container) isIntercepted(p param) bool {
-	switch p := p.(type) {
-	case paramSingle,
-		paramGroupedSlice:
-		return t.intercepted[p]
-		//case paramObject: // panic: runtime error: hash of unhashable type dig.paramObject
-		//case paramList: // panic: runtime error: hash of unhashable type dig.paramList
+func walkParamAndInjectField(p param, v paramVisitor) {
+	v = v.Visit(p)
+	if v == nil {
+		return
 	}
-	return false
+
+	switch par := p.(type) {
+	case paramSingle:
+		if t, ok := isStructType(par.Type); ok {
+			n := t.NumField()
+			for i := 0; i < n; i++ {
+				field := t.Field(i)
+				if name, ok := field.Tag.Lookup(_injectTag); ok {
+					walkParam(paramSingle{Type: field.Type, Name: name}, v)
+				}
+			}
+		}
+
+	case paramGroupedSlice:
+		// No sub-results
+	case paramObject:
+		for _, f := range par.Fields {
+			walkParam(f.Param, v)
+		}
+	case paramList:
+		for _, p := range par.Params {
+			walkParam(p, v)
+		}
+	default:
+		panic(fmt.Sprintf(
+			"It looks like you have found a bug in dig. "+
+				"Please file an issue at https://github.com/uber-go/dig/issues/ "+
+				"and provide the following message: "+
+				"received unknown param type %T", p))
+	}
+
+}
+
+func isStructType(t reflect.Type) (reflect.Type, bool) {
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t.Kind() == reflect.Struct {
+		return t, true
+	}
+	return t, false
 }
